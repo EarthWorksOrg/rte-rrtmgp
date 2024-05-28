@@ -136,6 +136,9 @@ contains
     real(wp), dimension(:,:,:), pointer             :: gpt_flux_up, gpt_flux_dn, gpt_flux_dir
     real(wp), dimension(:,:),   allocatable         :: sfc_alb_dir_gpt, sfc_alb_dif_gpt
     real(wp), dimension(:,:),   pointer             :: flux_dn_loc, flux_up_loc, flux_dir_loc
+    !Fix for GPU seg fault
+    real(wp), dimension(:,:),   pointer             :: flux_net_temp
+    !
     real(wp), dimension(:,:),   pointer             :: inc_flux_diffuse
     real(wp), dimension(:,:,:), allocatable, target :: decoy3D
     real(wp), dimension(:,:),   allocatable, target :: decoy2D
@@ -336,13 +339,20 @@ contains
         !
         type is (ty_fluxes_broadband)
           if(associated(fluxes%flux_net)) then
-            !$acc                         parallel loop    collapse(2) copyout(fluxes%flux_net)
+            allocate(flux_net_temp(ncol, nlay+1))
+            flux_net_temp(:,:) = fluxes%flux_net(:,:)
+            !$acc                         parallel loop    collapse(2) copyout(flux_net_temp)
             !$omp target teams distribute parallel do simd collapse(2)
             do ilev = 1, nlay+1
               do icol = 1, ncol
-                fluxes%flux_net(icol,ilev) = flux_dn_loc(icol,ilev) - flux_up_loc(icol,ilev)
+                !flux_net(icol,ilev) = flux_dn_loc(icol,ilev) - flux_up_loc(icol,ilev)
+                !fluxes%flux_net(icol,ilev) = flux_dn_loc(icol,ilev) - flux_up_loc(icol,ilev)
+                flux_net_temp(icol,ilev) = flux_dn_loc(icol,ilev) - flux_up_loc(icol,ilev)
               end do
             end do
+            !$acc end parallel
+            fluxes%flux_net(:,:) = flux_net_temp(:,:)
+            deallocate(flux_net_temp)
           end if
         class default
           !
